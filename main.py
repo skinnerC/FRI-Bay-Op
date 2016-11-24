@@ -6,14 +6,13 @@ import operator
 import random
 import numpy as np
 import matplotlib.pyplot as plt
-import multipolyfit as mpf
+import os
+import errno
+#import multipolyfit as mpf
 from deap import base, creator, tools
 from scipy.interpolate.rbf import Rbf as rbf
 
-#graph_num
-#methodCount
-#epsilon # sqrt(2)*sigma used for RBFs
-
+savePath = 'greedy/six_hump_camel/seed0/'
 random.seed(0)
 
 creator.create('FitnessMin', base.Fitness, weights=(-1.0,))
@@ -90,38 +89,17 @@ def minimize(approx_eq, popsize, ngen, npar, smin, smax, pmin, pmax):
 #            return tuple([best] + [best.fitness.values[0]])
     
     return tuple([best] + [best.fitness.values[0]])
-
-#def calc_mse(temp, x):
-#    try:
-#        approx_eq = rbf(*temp, function='gaussian', epsilon=x)
-#    except:
-#        return 1000000000
-#    
-#    # Calculate MSE with known points
-#    s_xy, s_z = zip(*samples)
-#    
-#    approx_z = []
-#    for x in s_xy:
-#        approx_z += [approx_eq(*x)]
-#        
-#    s_z = np.array(s_z)
-#    approx_z = np.array(approx_z)
-#    
-#    error = np.abs((approx_z - s_z) / s_z)
-#    mse = np.sqrt(np.sum(np.square(error)) / error.size)
-#    return mse
     
 def Bayesian(samples, NPAR, PMIN, PMAX, new_samples, graph=False):
     global methodCount
     graph_num = 1
-#    global epsilon
     methodCount = 0
     
     # Particle Swarm Optimization Parameters
-    POPSIZE = 10#30 # Population size
+    POPSIZE = 10 # Population size
     NGEN = 1000 # The number of gnerations 
-    SMIN = -3 #-20 # Minimum speed value
-    SMAX = 3 #20 # Maximum speed value
+    SMIN = -3 # Minimum speed value
+    SMAX = 3 # Maximum speed value
     
     for i in range(new_samples):
         # Seperate samples into xs and y arrays
@@ -138,10 +116,6 @@ def Bayesian(samples, NPAR, PMIN, PMAX, new_samples, graph=False):
         
         approx_eq = rbf(*temp, function='gaussian')
         
-#        t = minimize(lambda x: calc_mse(temp, x), 10, 100, 1, -3, 3, [0], [100])[0][0]
-#        print epsilon
-#        approx_eq = rbf(*temp, function='gaussian', epsilon=epsilon)
-        
         # Find minimum of approximate function
         min_xs =  minimize(approx_eq, POPSIZE, NGEN, NPAR, SMIN, SMAX, PMIN, PMAX)
         
@@ -152,23 +126,22 @@ def Bayesian(samples, NPAR, PMIN, PMAX, new_samples, graph=False):
             ny = np.arange(PMIN[1], PMAX[1]+1, 0.1)
             X, Y = np.meshgrid(nx, ny)
             Z = approx_eq(X, Y)
-                
             s_xy, s_z = zip(*samples)
             s_x, s_y = zip(*s_xy)
             plt.contour(X, Y, Z, 15, linewidths=0.5, colors='k')
             plt.pcolormesh(X, Y, Z, cmap=plt.get_cmap('Greys'))
             plt.colorbar()
 #            plt.scatter([-np.pi, np.pi, 9.42478], [12.275, 2.275, 2.475], s=20, c='red')
-            plt.scatter([1], [1], s=20, c='red')
+#            plt.scatter([1], [1], s=20, c='red')
+            plt.scatter([0.0898, -0.0898], [-0.7126, 0.7126], s=20, c='red')
             plt.scatter(s_x, s_y, s=30, marker='s', c='g', alpha='0.8')
             plt.scatter(min_xs[0][0], min_xs[0][1], s=30, marker='+', c='r')
-            plt.scatter([1], [1], s=20, c='red')
             plt.xlim(PMIN[0], PMAX[0])
             plt.ylim(PMIN[1], PMAX[1])
             plt.xlabel('x1')
             plt.ylabel('x2')
-            fig.suptitle('{0} Approximation'.format(eq.func_name))
-            plt.savefig('Results-{0}.png'.format(graph_num))
+            fig.suptitle('{0} Approximation'.format(savePath.split('/')[1]))
+            plt.savefig('{0}Results-{1}.png'.format(savePath, graph_num))
             graph_num += 1
             plt.close(fig)
         
@@ -176,18 +149,18 @@ def Bayesian(samples, NPAR, PMIN, PMAX, new_samples, graph=False):
 #            fig = plt.figure()
 #            nx = np.arange(PMIN[0], PMAX[0]+1, 0.01)
 #            X = nx
-#            Z = eq(X)
+#            Z = forrester(X)
 #            s_xy, s_z = zip(*samples)
 #            plt.plot(X, Z)
 #            Z = approx_eq(X)
 #            plt.plot(X, Z, c='y')
 #            plt.scatter(s_xy, s_z, s=30, marker='s', c='g', alpha='0.8')
-#            plt.scatter(min_xs[0], [eq(min_xs[0][0])], s=30, marker='+', c='r')
+#            plt.scatter(min_xs[0], [forrester(min_xs[0][0])], s=30, marker='+', c='r')
 #            plt.xlim(PMIN[0], PMAX[0])
 #            plt.ylim(-10, 20)
 #            plt.xlabel('x1')
-#            fig.suptitle('{0}'.format(eq.func_name))
-#            plt.savefig('Results-{0}.png'.format(graph_num))
+#            fig.suptitle('{0}'.format('forrester'))
+#            plt.savefig('{0}Results-{1}.png'.format(savePath, graph_num))
 #            plt.close(fig)
 #            graph_num += 1
         
@@ -215,19 +188,6 @@ def generateSample(eq, PMIN, PMAX):
     for i in range(len(PMIN)):
         xs += [random.uniform(PMIN[i], PMAX[i])]
     return (xs, eq(*xs))
-    
-def generateSamples(eq, PMIN, PMAX, i):
-    samples = []
-    xs = []
-    temp = []
-    for j in range(len(PMIN)):
-        temp += [np.random.uniform(PMIN[j], PMAX[j], i)]
-    for x in range(i):
-        xs += [[temp[y][x] for y in range(len(PMIN))]]
-    for x in xs:
-        samples += [(x, eq(*x))]
-    
-    return samples
 
 # Global Minimum = 0.397887
 # x1 = [-5, 10], x2 = [0, 15]
@@ -240,7 +200,7 @@ def branin(x1, x2, a = 1., b = 5.1/(4.*np.pi**2), c = 5./np.pi, r = 6., s = 10.,
     return y
 
 # Global Minimum = 0
-# xi = [-5, 10]
+# xi = [-5, 10], [-2.048, 2.048]
 def rosenbrock(x1, x2):
     global methodCount
     methodCount += 1
@@ -281,20 +241,19 @@ def rosenbrockD(xs, xd):
         sum += new
     return sum
 
-if __name__ == '__main__':
+def main():
     global methodCount # Might need (won't be used)
-#    global epsilon
     
-    # Mi nand max for each parameter (array of each)
-    PMIN = [-2.048, -2.048] # Need
-    PMAX = [2.048, 2.048] # Need
+    # Min and max for each parameter (array of each)
+    PMIN = [-3, -2] # Need
+    PMAX = [3, 2] # Need
     
-#    def rosenbrock3D(x1, x2, x3): return rosenbrockD([x1, x2, x3], 3)    
-    eq = rosenbrock
+#    def rosenbrock3D(x1, x2, x3): return rosenbrockD([x1, x2, x3], 3)
+    
+    eq = six_hump_camel
     new_pts = 20 # Need
     graph_num = 0
     methodCount = 0 # Might need (won't be used)
-#    epsilon = 5
 
 #    #To use PSO on equation
 #    minimize(eq, 10, 1000, 2, -3, 3, PMIN, PMAX)
@@ -305,34 +264,42 @@ if __name__ == '__main__':
     samples = [generateSample(eq, PMIN, PMAX) for _ in range(10)] # Need (samples must be in the stated format)
     
     # Forrester Samples
-#    samples = [([0.0], eq(0.0)), ([0.58], eq(0.58)), ([1.0], eq(1.0))]
+#    samples = [([0.0], eq(0.0)), ([0.50], eq(0.50)), ([1.0], eq(1.0))]
+    
+    # Make folder
+    if not os.path.exists(os.path.dirname(savePath)):
+        try:
+            os.makedirs(os.path.dirname(savePath))
+        except OSError as exc: # Guard against race condition
+            if exc.errno != errno.EEXIST:
+                raise    
     
     #Graphing Code
-#    fig = plt.figure()
-#    nx = np.arange(PMIN[0], PMAX[0]+1, 0.1)
-#    ny = np.arange(PMIN[1], PMAX[1]+1, 0.1)
-#    X, Y = np.meshgrid(nx, ny)
-#    Z = eq(X, Y)
-#        
-#    s_xy, s_z = zip(*samples)
-#    s_x, s_y = zip(*s_xy)
-#    plt.contour(X, Y, Z, 15, linewidths=0.5, colors='k')
-#    plt.pcolormesh(X, Y, Z, cmap=plt.get_cmap('Greys'))
-#    plt.colorbar()
-##    plt.scatter([-np.pi, np.pi, 9.42478], [12.275, 2.275, 2.475], s=20, c='red')
+    fig = plt.figure()
+    nx = np.arange(PMIN[0], PMAX[0]+1, 0.1)
+    ny = np.arange(PMIN[1], PMAX[1]+1, 0.1)
+    X, Y = np.meshgrid(nx, ny)
+    Z = eq(X, Y)
+        
+    s_xy, s_z = zip(*samples)
+    s_x, s_y = zip(*s_xy)
+    plt.contour(X, Y, Z, 15, linewidths=0.5, colors='k')
+    plt.pcolormesh(X, Y, Z, cmap=plt.get_cmap('Greys'))
+    plt.colorbar()
+#    plt.scatter([-np.pi, np.pi, 9.42478], [12.275, 2.275, 2.475], s=20, c='red')
 #    plt.scatter([1], [1], s=20, c='red')
-#    plt.scatter(s_x, s_y, s=30, marker='s', c='g', alpha='0.8')
-#    plt.xlim(PMIN[0], PMAX[0])
-#    plt.ylim(PMIN[1], PMAX[1])
-#    plt.xlabel('x1')
-#    plt.ylabel('x2')
-#    fig.suptitle('{0}'.format(eq.func_name))
-#    plt.savefig('Results-{0}.png'.format(graph_num))
-#    plt.close(fig)
-#    graph_num += 1
+    plt.scatter([0.0898, -0.0898], [-0.7126, 0.7126], s=20, c='red')
+    plt.scatter(s_x, s_y, s=30, marker='s', c='g', alpha='0.8')
+    plt.xlim(PMIN[0], PMAX[0])
+    plt.ylim(PMIN[1], PMAX[1])
+    plt.xlabel('x1')
+    plt.ylabel('x2')
+    fig.suptitle('{0}'.format(eq.func_name))
+    plt.savefig('{0}Results-{1}.png'.format(savePath, graph_num))
+    plt.close(fig)
     
     # Create optimization generator
-    bay = Bayesian(samples, 2, PMIN, PMAX, new_pts, graph=False) # Need
+    bay = Bayesian(samples, 2, PMIN, PMAX, new_pts, graph=True) # Need
     
     # Create new_pts new sample points
     for i in range(new_pts): # Need
@@ -352,7 +319,14 @@ if __name__ == '__main__':
     print 'Final'
     print best_x
     
-    file = open('Results.txt', 'w')
+    file = open(savePath+'Results.txt', 'w')
     file.write(str(best_x[1])+'\n')
     file.write(str(best_x[0]))
     file.close()
+    
+if __name__ == '__main__':
+    global savePath
+    for i in range(10):
+        random.seed(i)
+        savePath = savePath[:-2] + str(i) + '/'
+        main()
