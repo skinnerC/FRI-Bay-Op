@@ -1,18 +1,14 @@
-'''
-Use radius of sampled points and particles. If is 
-'''
-
 import operator
 import random
 import numpy as np
 import matplotlib.pyplot as plt
 import os
 import errno
-#import multipolyfit as mpf
+import sys
+import math
 from deap import base, creator, tools
 from scipy.interpolate.rbf import Rbf as rbf
 
-savePath = 'greedy/six_hump_camel/seed0/'
 random.seed(0)
 
 creator.create('FitnessMin', base.Fitness, weights=(-1.0,))
@@ -55,18 +51,25 @@ def update_particle(particle, best, phi1, phi2):
     particle[:] = list(map(operator.add, particle, particle.speed))
 
 # Necessary if function does not take args as a list
-def eval_wrapper(approx_eq, particle):
-    return (approx_eq(*particle),)
+def eval_wrapper(approx_eq, particle, samples):
+    xs, y = map(np.array, zip(*samples))
+    distances = xs - np.array(particle)
+    s_hat = np.sqrt(np.sum(np.square(distances), axis=1))
     
-def calc(approx_eq, particle):
+    if min(s_hat) <= radius:
+        return (sys.maxsize,)
+        
+    return (approx_eq(*particle),) # test with s_hat sum 
+    
+def calc(approx_eq, particle, samples):
     return (approx_eq(particle),)
 
-def minimize(approx_eq, popsize, ngen, npar, smin, smax, pmin, pmax):
+def minimize(approx_eq, popsize, ngen, npar, smin, smax, pmin, pmax, samples=None):
     toolbox = base.Toolbox()
     toolbox.register('particle', generate, size=npar, pmin=pmin, pmax=pmax, smin=smin, smax=smax)
     toolbox.register('population', tools.initRepeat, list, toolbox.particle)
     toolbox.register('update', update_particle, phi1=2.0, phi2=2.0)
-    toolbox.register("evaluate", eval_wrapper, approx_eq)
+    toolbox.register("evaluate", eval_wrapper, approx_eq, samples=samples)
 
     pop = toolbox.population(n = popsize)
     best = None
@@ -92,6 +95,7 @@ def minimize(approx_eq, popsize, ngen, npar, smin, smax, pmin, pmax):
     
 def Bayesian(samples, NPAR, PMIN, PMAX, new_samples, graph=False):
     global methodCount
+    global radius
     graph_num = 1
     methodCount = 0
     
@@ -109,15 +113,21 @@ def Bayesian(samples, NPAR, PMIN, PMAX, new_samples, graph=False):
         
         # Create array of parameter arrays
         temp = []
-        for i in range(NPAR):
-            temp += [xs[:,i]]
+        for j in range(NPAR):
+            temp += [xs[:,j]]
         temp += [y]
         temp = np.array(temp)
         
+        # Create RBF approximation
         approx_eq = rbf(*temp, function='gaussian')
         
+        # Set radius value
+        # Radius starts at a slightly less than the value of .2 * the shortest paramerter seach size
+        # It then decreases proportionally such that the last 1/6 of the new new points are found greadily
+        radius = (.22 - ((i+math.ceil(new_samples/5))*(.22/new_samples))) * max(np.array(PMAX) - np.array(PMIN))
+        
         # Find minimum of approximate function
-        min_xs =  minimize(approx_eq, POPSIZE, NGEN, NPAR, SMIN, SMAX, PMIN, PMAX)
+        min_xs =  minimize(approx_eq, POPSIZE, NGEN, NPAR, SMIN, SMAX, PMIN, PMAX, samples)
         
         # Graph the aprox eq and min
         if graph:
@@ -133,7 +143,7 @@ def Bayesian(samples, NPAR, PMIN, PMAX, new_samples, graph=False):
             plt.colorbar()
 #            plt.scatter([-np.pi, np.pi, 9.42478], [12.275, 2.275, 2.475], s=20, c='red')
 #            plt.scatter([1], [1], s=20, c='red')
-            plt.scatter([0.0898, -0.0898], [-0.7126, 0.7126], s=20, c='red')
+#            plt.scatter([0.0898, -0.0898], [-0.7126, 0.7126], s=20, c='red')
             plt.scatter(s_x, s_y, s=30, marker='s', c='g', alpha='0.8')
             plt.scatter(min_xs[0][0], min_xs[0][1], s=30, marker='+', c='r')
             plt.xlim(PMIN[0], PMAX[0])
@@ -151,19 +161,21 @@ def Bayesian(samples, NPAR, PMIN, PMAX, new_samples, graph=False):
 #            X = nx
 #            Z = forrester(X)
 #            s_xy, s_z = zip(*samples)
-#            plt.plot(X, Z)
+#            plt.plot(X, Z, label='Original')
+#            plt.scatter([0.7572], [forrester(0.7572)], s=20, c='r')
 #            Z = approx_eq(X)
-#            plt.plot(X, Z, c='y')
+#            plt.plot(X, Z, c='y', label='Approximation')
 #            plt.scatter(s_xy, s_z, s=30, marker='s', c='g', alpha='0.8')
 #            plt.scatter(min_xs[0], [forrester(min_xs[0][0])], s=30, marker='+', c='r')
 #            plt.xlim(PMIN[0], PMAX[0])
 #            plt.ylim(-10, 20)
-#            plt.xlabel('x1')
+#            plt.xlabel('x')
+#            plt.ylabel('y')
 #            fig.suptitle('{0}'.format('forrester'))
+#            plt.legend(loc='upper center')
 #            plt.savefig('{0}Results-{1}.png'.format(savePath, graph_num))
 #            plt.close(fig)
 #            graph_num += 1
-        
         
         # Return parameters for user to try
         yield min_xs[0]
@@ -177,6 +189,22 @@ def Bayesian(samples, NPAR, PMIN, PMAX, new_samples, graph=False):
         
         # Keep the generator alligned
         yield
+    
+    fig = plt.figure()
+    X = [h+1 for h in range(new_samples)]
+    s_xy, s_z = zip(*samples)
+    start = len(s_z)-new_samples
+    Y = []
+    for k in range(start, len(s_z)):
+        Y += [s_z[k]]
+    plt.plot(X, Y)
+    plt.xlim(1, new_samples)
+    plt.ylim(0, 20)
+    plt.xlabel('Iteration')
+    plt.ylabel('Value of New Sample Point')
+    fig.suptitle('{0}'.format(savePath.split('/')[1]))
+    plt.savefig('{0}Results.png'.format(savePath))
+    plt.close(fig)
     
     # Return the best xs from the sample ponts
     samples_xs, samples_y = zip(*samples)
@@ -223,6 +251,8 @@ def six_hump_camel(x1, x2):
     
 # xi = [-10, 10]
 def colville(x1, x2, x3, x4):
+    global methodCount
+    methodCount += 1
     term1 = 100 * (x1**2-x2)**2;
     term2 = (x1-1)**2;
     term3 = (x3-1)**2;
@@ -245,13 +275,13 @@ def main():
     global methodCount # Might need (won't be used)
     
     # Min and max for each parameter (array of each)
-    PMIN = [-3, -2] # Need
-    PMAX = [3, 2] # Need
+    PMIN = [-2.048, -2.048, -2.048] # Need
+    PMAX = [2.048, 2.048, 2.048] # Need
     
-#    def rosenbrock3D(x1, x2, x3): return rosenbrockD([x1, x2, x3], 3)
+    def rosenbrock3D(x1, x2, x3): return rosenbrockD([x1, x2, x3], 3)
     
-    eq = six_hump_camel
-    new_pts = 20 # Need
+    eq = rosenbrock3D
+    new_pts = 30 # Need
     graph_num = 0
     methodCount = 0 # Might need (won't be used)
 
@@ -261,7 +291,7 @@ def main():
     
     # Create 10 samlpe points and calculate their values
     # Samples need to be in the following form [([parameters], y), ([parameters], y), ...]
-    samples = [generateSample(eq, PMIN, PMAX) for _ in range(10)] # Need (samples must be in the stated format)
+    samples = [generateSample(eq, PMIN, PMAX) for _ in range(15)] # Need (samples must be in the stated format)
     
     # Forrester Samples
 #    samples = [([0.0], eq(0.0)), ([0.50], eq(0.50)), ([1.0], eq(1.0))]
@@ -275,31 +305,31 @@ def main():
                 raise    
     
     #Graphing Code
-    fig = plt.figure()
-    nx = np.arange(PMIN[0], PMAX[0]+1, 0.1)
-    ny = np.arange(PMIN[1], PMAX[1]+1, 0.1)
-    X, Y = np.meshgrid(nx, ny)
-    Z = eq(X, Y)
-        
-    s_xy, s_z = zip(*samples)
-    s_x, s_y = zip(*s_xy)
-    plt.contour(X, Y, Z, 15, linewidths=0.5, colors='k')
-    plt.pcolormesh(X, Y, Z, cmap=plt.get_cmap('Greys'))
-    plt.colorbar()
-#    plt.scatter([-np.pi, np.pi, 9.42478], [12.275, 2.275, 2.475], s=20, c='red')
-#    plt.scatter([1], [1], s=20, c='red')
-    plt.scatter([0.0898, -0.0898], [-0.7126, 0.7126], s=20, c='red')
-    plt.scatter(s_x, s_y, s=30, marker='s', c='g', alpha='0.8')
-    plt.xlim(PMIN[0], PMAX[0])
-    plt.ylim(PMIN[1], PMAX[1])
-    plt.xlabel('x1')
-    plt.ylabel('x2')
-    fig.suptitle('{0}'.format(eq.func_name))
-    plt.savefig('{0}Results-{1}.png'.format(savePath, graph_num))
-    plt.close(fig)
+#    fig = plt.figure()
+#    nx = np.arange(PMIN[0], PMAX[0]+1, 0.1)
+#    ny = np.arange(PMIN[1], PMAX[1]+1, 0.1)
+#    X, Y = np.meshgrid(nx, ny)
+#    Z = eq(X, Y)
+#        
+#    s_xy, s_z = zip(*samples)
+#    s_x, s_y = zip(*s_xy)
+#    plt.contour(X, Y, Z, 15, linewidths=0.5, colors='k')
+#    plt.pcolormesh(X, Y, Z, cmap=plt.get_cmap('Greys'))
+#    plt.colorbar()
+##    plt.scatter([-np.pi, np.pi, 9.42478], [12.275, 2.275, 2.475], s=20, c='red')
+##    plt.scatter([1], [1], s=20, c='red')
+##    plt.scatter([0.0898, -0.0898], [-0.7126, 0.7126], s=20, c='red')
+#    plt.scatter(s_x, s_y, s=30, marker='s', c='g', alpha='0.8')
+#    plt.xlim(PMIN[0], PMAX[0])
+#    plt.ylim(PMIN[1], PMAX[1])
+#    plt.xlabel('x1')
+#    plt.ylabel('x2')
+#    fig.suptitle('{0}'.format(eq.func_name))
+#    plt.savefig('{0}Results-{1}.png'.format(savePath, graph_num))
+#    plt.close(fig)
     
     # Create optimization generator
-    bay = Bayesian(samples, 2, PMIN, PMAX, new_pts, graph=True) # Need
+    bay = Bayesian(samples, 3, PMIN, PMAX, new_pts, graph=False) # Need
     
     # Create new_pts new sample points
     for i in range(new_pts): # Need
@@ -326,6 +356,8 @@ def main():
     
 if __name__ == '__main__':
     global savePath
+    savePath = 'updated/rosenbrock3D/seed0/'
+    
     for i in range(10):
         random.seed(i)
         savePath = savePath[:-2] + str(i) + '/'
